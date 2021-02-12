@@ -283,7 +283,71 @@ Resources:
       Source:
         Owner: AWS
         SourceIdentifier: VPC_DEFAULT_SECURITY_GROUP_CLOSED
+    DependsOn: ConfigRecorder
 
+  ConfigRecorder:
+    Type: AWS::Config::ConfigurationRecorder
+    Properties:
+      Name: default
+      RecordingGroup:
+        ResourceTypes: ['AWS::EC2::SecurityGroup']
+      RoleARN: !GetAtt [ConfigRole, Arn]
+      
+  ConfigBucket:
+    Type: AWS::S3::Bucket
+    
+  ConfigRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: [config.amazonaws.com]
+          Action: ['sts:AssumeRole']
+      ManagedPolicyArns: ['arn:aws:iam::aws:policy/service-role/AWSConfigRole']
+      Policies:
+      - PolicyName: root
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action: s3:GetBucketAcl
+            Resource: !Join ['', ['arn:aws:s3:::', !Ref 'ConfigBucket']]
+          - Effect: Allow
+            Action: s3:PutObject
+            Resource: !Join ['', ['arn:aws:s3:::', !Ref 'ConfigBucket', /AWSLogs/,
+                !Ref 'AWS::AccountId', /*]]
+            Condition:
+              StringEquals:
+                s3:x-amz-acl: bucket-owner-full-control
+          - Effect: Allow
+            Action: config:Put*
+            Resource: '*'
+  DeliveryChannel:
+    Type: AWS::Config::DeliveryChannel
+    Properties:
+      ConfigSnapshotDeliveryProperties:
+        DeliveryFrequency: Six_Hours
+      S3BucketName: !Ref 'ConfigBucket'
+      SnsTopicARN: !Ref 'ConfigTopic'
+  ConfigTopic:
+    Type: AWS::SNS::Topic
+  ConfigTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      PolicyDocument:
+        Id: ConfigTopicPolicy
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: config.amazonaws.com
+          Action: SNS:Publish
+          Resource: '*'
+      Topics: [!Ref 'ConfigTopic']
+  
   SSMRole:
     Type: "AWS::IAM::Role"
     Properties:
